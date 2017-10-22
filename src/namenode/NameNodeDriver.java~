@@ -1,0 +1,574 @@
+package namenode;
+
+import com.example.communication.ClientNameNode;
+import com.example.elements.BlockInfo;
+import com.example.elements.DataNodeInfo;
+import com.example.elements.DirectoryInfo;
+import com.example.report.BlockReport;
+import com.example.report.HeartBeat;
+import com.sun.istack.internal.logging.Logger;
+import remote.interfaces.NameNode;
+import remote.rmi.Client;
+import remote.rmi.Server;
+
+import java.io.*;
+import java.rmi.server.RemoteServer;
+import java.security.SecureRandom;
+import java.util.*;
+import java.util.logging.Level;
+import javafx.util.Pair;
+
+import javax.xml.crypto.Data;
+
+/**
+ * Created by SAYAN on 14-10-2017.
+ */
+public class NameNodeDriver implements NameNode {
+
+    /*  Port on which DataNodes run. */
+    private static int DATA_NODE_PORT = 5000;
+
+    /*  Number of DataNodes where a block is stored. */
+    private static int REPLICATION_FACTOR = 3;
+
+    /*  INODE number of the File System root. */
+    private static String ROOT_INODE_NO = "i1";
+
+    /*
+     *  key : hostip,
+     *  value :  [DiskUsage, MainMemoryUsage]
+     */
+    public static HashMap<String,List<String>> heartBeatStatus
+            = new HashMap<>();
+
+    /*
+     *  key : hostip,
+     *  value : List of blocks the DN holds
+     */
+    //public static HashMap<String,List<Integer>> blockReportStatus
+    //        = new HashMap<>();
+
+    @Deprecated
+    public static HashMap<String, List<Integer>> filenameToBlocks
+            = new HashMap<>();
+
+    /*
+     *  key : filehandle
+     *  value : <filename, mode(r/w)>
+     */
+    public static HashMap<Integer, List<String>> filehandleName
+            = new HashMap<>();
+
+    /*
+     *  Root of the File System.
+     */
+    private static INode root;
+
+    /*
+     *  key : BlockNo
+     *  value : 0 - List of DNs that hold the block no.
+     *          1 - Is the block committed or not.
+     */
+    private static HashMap<Integer, Pair<List<DataNodeInfo.DataNode>, Boolean>> blockToDN
+            = new HashMap<>();
+
+
+    public static void main(String[] args) throws Exception {
+        String NameNodeIP = "10.1.134.48";
+        Server<NameNode> server = new Server<NameNode>(NameNodeIP, "namenode");
+        server.listen(new NameNodeDriver());
+
+        /*
+         *  Building the File System tree in memory
+         */
+        root = new INode(ROOT_INODE_NO);
+
+        //Storing the mapping of blockno to datanodes in memory.
+        readBlockToDN();
+    }
+
+    private static void readBlockToDN(){
+        BufferedReader br = null;
+        FileReader fr = null;
+        try {
+            String s;
+            br = new BufferedReader(new FileReader("blockToDN.txt"));
+            while ((s = br.readLine()) != null){
+                if(s.equals(""))
+                    continue;
+                int key = Integer.parseInt(s.split(":")[0]);
+                String[] DNs = s.split(":")[1].split(",");
+                List<DataNodeInfo.DataNode> dnlst = new ArrayList<>();
+                for(int i = 0; i < DNs.length; i++){
+                    dnlst.add(DataNodeInfo.DataNode.newBuilder()
+                            .setId(1)
+                            .setIp(DNs[i])
+                            .setPort(DATA_NODE_PORT)
+                            .build());
+                }
+                blockToDN.put(key, new Pair<>(dnlst, true));
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (br != null)
+                    br.close();
+                if (fr != null)
+                    fr.close();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+    }
+
+    @Override
+    public BlockReport.BlockReportResponse updateBlockInfo(BlockReport.BlockReportRequest br) {
+        String datanodehost = null;
+        List<Integer> listWithNN = new ArrayList<>();
+        List<Integer> listWithDN = new ArrayList<>();
+        HashMap<Integer, Boolean> map = new HashMap<>();
+        List<Integer> toBeDeleted = new ArrayList<>();
+        BlockReport.BlockReportResponse.Builder res
+                = BlockReport.BlockReportResponse.newBuilder();
+        try{
+            datanodehost = RemoteServer.getClientHost();
+            listWithDN = br.getBlockListList();
+            System.out.println("INSIDE BLOCK REPORT");
+            System.out.println("---------------------------------------");
+            System.out.println(blockToDN);
+            for(Map.Entry<Integer, Pair<List<DataNodeInfo.DataNode>, Boolean>>
+                    entry: blockToDN.entrySet()){
+                List<DataNodeInfo.DataNode> ls = entry.getValue().getKey();
+                for(int i = 0; i < ls.size(); i++){
+                    if(ls.get(i).getIp().equals(datanodehost)){
+                        listWithNN.add(entry.getKey());
+                    }
+                }
+            }
+
+            System.out.println("List With NN");
+            System.out.println("-----------------------------------------------------");
+            for(int i = 0; i < listWithNN.size(); i++)
+                System.out.print(Integer.toString(listWithNN.get(i)) + ',');
+
+            System.out.println();
+
+            for(int i = 0; i < listWithNN.size(); i++)
+                map.put(listWithNN.get(i), true);
+
+            System.out.println("List With DN");
+            System.out.println("-----------------------------------------------------");
+            for(int i = 0; i < listWithDN.size(); i++)
+                System.out.print(Integer.toString(listWithDN.get(i)) + ',');
+            System.out.println();
+
+            for(int i = 0; i < listWithDN.size(); i++){
+                if(map.containsKey(listWithDN.get(i)))
+                    map.remove(listWithDN.get(i));
+                else
+                    toBeDeleted.add(listWithDN.get(i));
+            }
+
+            res.setToDelete(!toBeDeleted.isEmpty());
+            res.addAllBlockList(toBeDeleted);
+
+            System.out.println("To be deleted");
+            System.out.println("-----------------------------------------------------");
+            for(int i = 0; i < toBeDeleted.size(); i++)
+                System.out.print(Integer.toString(toBeDeleted.get(i)) + ',');
+            System.out.println();
+
+            res.setToRestore(!map.isEmpty());
+            for(Map.Entry<Integer, Boolean> entry : map.entrySet()){
+                int block = entry.getKey();
+                res.addBlocks(BlockInfo.Block.newBuilder()
+                        .setNum(block)
+                        .addAllDataNode(blockToDN.get(block).getKey())
+                );
+                //blockToDN.get(block);
+            }
+            //blockReportStatus.put(datanodehost,br.getBlockListList());
+        }
+        catch (Exception e){
+            Logger.getLogger(this.getClass()).log(Level.SEVERE, "Something went wrong "
+                    + "while processing block report.");
+        }
+        return res.build();
+    }
+
+    @Override
+    public HeartBeat.HeartBeatResponse sendHeartBeat(HeartBeat.HeartBeatRequest hb) {
+        String clienthost=null;
+        try{
+            clienthost = RemoteServer.getClientHost();
+            /*System.out.println("\nHeartBeat host:" + clienthost);
+            System.out.println("Main Memory Usage:" + hb.getAvailableDiskMemory());
+            System.out.println("CPU Usage: " + hb.getAvailableMainMemory());*/
+            heartBeatStatus.put(clienthost, Arrays.asList((Integer.toString(hb.getAvailableDiskMemory())
+                    + "," + Integer.toString(hb.getAvailableMainMemory())).split(",")));
+        }catch(Exception e){
+            Logger.getLogger(this.getClass()).log(Level.SEVERE,"Could not get host ip"
+                    + " from heartbeat message.");
+            e.printStackTrace();
+        }
+        return HeartBeat.HeartBeatResponse.newBuilder().setStatus(true).build();
+    }
+
+    @Override
+    public ClientNameNode.OpenFileResponse openFile(ClientNameNode.OpenFileRequest op) {
+
+        ClientNameNode.OpenFileResponse.Builder res = ClientNameNode.OpenFileResponse.newBuilder();
+        try {
+            String filename = op.getFilename();
+            int mode = op.getMode();
+            int noOfChunks = op.getNumberOfChunks();
+
+            System.out.println("[INFO] Filename :" + filename);
+            System.out.println("[INFO] Mode :" + mode);
+            System.out.println("[INFO] No of chunks :" + noOfChunks);
+
+            String handle = generateRandomFileHandle();
+
+            System.out.println("[INFO] Handle : " + handle);
+
+
+            res.setFilehandle(Integer.parseInt(handle));
+            if(mode == 0) //Write
+            {
+                filehandleName.put(Integer.parseInt(handle), Arrays.asList(filename, "0"));
+                ArrayList<BlockInfo.Block> blks = getBlocks(filename, noOfChunks);
+                if(blks.isEmpty())
+                    res.addAllBlockList(blks).setStatus(0);
+                else
+                    res.addAllBlockList(blks).setStatus(1);
+                Logger.getLogger(this.getClass()).log(Level.INFO,"Received request for"
+                        + " writing to file " + filename + ".");
+            }
+            else if (mode == 1) //Read
+            {
+                filehandleName.put(Integer.parseInt(handle), Arrays.asList(filename, "1"));
+                ArrayList<BlockInfo.Block> blks = getBlocks(filename);
+                if(blks.isEmpty())
+                    res.addAllBlockList(blks).setStatus(0);
+                else
+                    res.addAllBlockList(blks).setStatus(1);
+                Logger.getLogger(this.getClass()).log(Level.INFO,"Received request for"
+                        + " reading from file " + filename + ".");
+                //filehandleName.remove(Integer.parseInt(handle), filename);
+            }
+            else{
+                Logger.getLogger(this.getClass()).log(Level.INFO,"Something seems to be"
+                        + " wrong with the mode of the file.");
+            }
+            //res.setStatus(1);
+        } catch (Exception e) {
+            Logger.getLogger(this.getClass()).log(Level.SEVERE,"Something went wrong"
+                    + " while opening file.");
+            res.setStatus(0);
+            e.printStackTrace();
+        }
+        return res.build();
+    }
+
+    @Override
+    public ClientNameNode.CloseFileResponse closeFile(ClientNameNode.CloseFileRequest cl) {
+        ClientNameNode.CloseFileResponse.Builder res
+                = ClientNameNode.CloseFileResponse.newBuilder();
+        try{
+            int filehandle = cl.getFilehandle();
+            int decision = cl.getDecision();
+            List<String> f = filehandleName.get(filehandle);
+            String filename = f.get(0);
+            String mode = f.get(1);
+            /*
+             *  File opened in read mode.
+             */
+            if(mode.equals("1")){
+                filehandleName.remove(filehandle);
+                return res.setStatus(true).build();
+            }
+            /*
+             *  Commit
+             */
+            if(decision == 1){
+                //Parse through the INodeTree and
+                //write to File.
+                //filename = filehandleName.get(filehandle);
+                //INode node = root.getNode(root, filename.split("/"));
+                writeBlockToDN(filename);
+                (new FileSystem()).addINodeToFS(root, filename.split("/"));
+            }
+            /*
+             *  Abort
+             */
+            else{
+                //Remove from the INodeTree.
+                String file = filename.substring(filename.lastIndexOf("/") + 1);
+                String path = filename.substring(1, filename.lastIndexOf("/") + 1);
+                INode node = root.getNode(root, filename.split("/"));
+                String[] blocks = node.getBlockNos().split(",");
+                for(int i = 0; i < blocks.length; i++){
+                    if(blockToDN.get(Integer.parseInt(blocks[i])).getValue() == false)
+                        blockToDN.remove(Integer.parseInt(blocks[i]));
+                }
+                root.removeFromTree(root, file, path.split("/"));
+            }
+            filehandleName.remove(filehandle);
+            res.setStatus(true);
+        }
+        catch (Exception e){
+            Logger.getLogger(this.getClass()).log(Level.SEVERE, "Something wrong happened"
+                    + " in close file request.");
+            res.setStatus(false);
+        }
+        return res.build();
+    }
+
+    private static void writeBlockToDN(String filename){
+
+        try{
+            FileWriter fw = new FileWriter("blockToDN.txt", true);
+
+            INode node = root.getNode(root, filename.split("/"));
+            String[] blocks = node.getBlockNos().split(",");
+            //System.out.println("[WriteBlockToDN] Blocks : " + blocks[0]);
+            //System.out.println("BlockToDN " + blockToDN);
+            for(int i = 0; i < blocks.length; i++){
+                if(blockToDN.get(Integer.parseInt(blocks[i])).getValue() == false){
+                    List<DataNodeInfo.DataNode> dataNodes = new ArrayList<>();
+                    dataNodes = blockToDN.get(Integer.parseInt(blocks[i])).getKey();
+                    blockToDN.put(Integer.parseInt(blocks[i])
+                            , new Pair<>(dataNodes, true));
+                    String dn = "";
+                    for(int j = 0; j < dataNodes.size(); j++){
+                        dn = dn + "," + dataNodes.get(j).getIp();
+                    }
+                    dn = dn.substring(1);
+                    fw.write(System.getProperty("line.separator")
+                            + blocks[i] + ":" + dn);
+                }
+            }
+            fw.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public ClientNameNode.CreateDirectoryResponse createDirectory(ClientNameNode.CreateDirectoryRequest cd) {
+        ClientNameNode.CreateDirectoryResponse res;
+        String directoryname = cd.getDirectoryname();
+        String directory = directoryname.substring(directoryname.lastIndexOf("/") + 1);
+        String path = directoryname.substring(1, directoryname.lastIndexOf("/") + 1);
+        String newINodeNo = (new FileSystem()).generateINodeNo();
+        boolean inserted = root.insertIntoTree(root, newINodeNo, directory, path.split("/"), "d");
+        if(inserted) {
+            (new FileSystem()).addINodeToFS(root, directoryname.split("/"));
+            res = ClientNameNode.CreateDirectoryResponse.newBuilder().setStatus(true).build();
+        }
+        else {
+            Logger.getLogger(this.getClass()).log(Level.SEVERE, "Something went wrong"
+                    + " while creating directory");
+            res = ClientNameNode.CreateDirectoryResponse.newBuilder().setStatus(false).build();
+        }
+        return res;
+    }
+
+    @Override
+    public ClientNameNode.listResponse list(ClientNameNode.listRequest rq){
+        //listResponse lr;
+        Map<String, List<String>> ls = (new FileSystem()).listFiles(root, rq.getDirName().split("/"));
+        List<DirectoryInfo.Directory> dirs = new ArrayList<>();
+        List<DirectoryInfo.File> files = new ArrayList<>();
+
+        if(ls.isEmpty())
+            return ClientNameNode.listResponse.newBuilder()
+                    .setStatus(0)
+                    .build();
+
+        for(Map.Entry<String, List<String>> entry : ls.entrySet()){
+            if(entry.getValue().get(0).equals("f")){
+                //This is a file.
+                files.add(
+                        DirectoryInfo.File.newBuilder()
+                            .setFileName(entry.getKey())
+                            .setTimeStamp(entry.getValue().get(1))
+                            .build()
+                );
+            }
+            else{
+                //This is a directory.
+                dirs.add(
+                        DirectoryInfo.Directory.newBuilder()
+                            .setDirName(entry.getKey())
+                            .setTimeStamp(entry.getValue().get(1))
+                            .build()
+                );
+            }
+        }
+        return ClientNameNode.listResponse.newBuilder()
+                .setDirectory(
+                        DirectoryInfo.Directory.newBuilder()
+                            .addAllDirList(dirs)
+                            .addAllFileList(files)
+                            .setDirName(rq.getDirName()).build())
+                .setStatus(1)
+                .build();
+    }
+
+    public static synchronized int getBlockNum() {
+        int num=0;
+        BufferedReader br = null;
+        FileReader fr = null;
+        try {
+            String sCurrentLine;
+            br = new BufferedReader(new FileReader("blocknum.txt"));
+            while ((sCurrentLine = br.readLine()) != null)
+                num=Integer.parseInt(sCurrentLine);
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (br != null)
+                    br.close();
+                if (fr != null)
+                    fr.close();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+        return num;
+    }
+
+    public static synchronized void writeBlockNum(int num) {
+        BufferedWriter bw = null;
+        FileWriter fw = null;
+        try {
+            fw = new FileWriter("blocknum.txt");
+            bw = new BufferedWriter(fw);
+            bw.write(new Integer(num).toString());
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (bw != null)
+                    bw.close();
+                if (fw != null)
+                    fw.close();
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
+    }
+
+    public synchronized List<DataNodeInfo.DataNode> findBestDataNodes(int n){
+        List<DataNodeInfo.DataNode> dataNodes
+                = new ArrayList<>();
+        TreeMap<Float, String> treeMap = new TreeMap<>();
+        int count;
+        System.out.println(heartBeatStatus);
+        for (HashMap.Entry<String, List<String>> entry : heartBeatStatus.entrySet()){
+            String ip = entry.getKey();
+            float sum = 0;
+            for(int i = 0; i < entry.getValue().size(); i++)
+                sum += Float.parseFloat(entry.getValue().get(i));
+            treeMap.put(sum, ip);
+        }
+        count = 0;
+        for (Map.Entry<Float, String> entry : treeMap.entrySet()){
+            count++;
+            dataNodes.add(DataNodeInfo.DataNode.newBuilder().setIp(entry.getValue())
+                    .setPort(DATA_NODE_PORT).setId(1).build());
+            if(count == n)
+                break;
+        }
+        return dataNodes;
+    }
+
+    private String generateRandomFileHandle(){
+        String phone = "1234567890";
+        long seed = Long.parseLong(phone) * Long.parseLong("1000") + System.currentTimeMillis() % 1000L;
+        Random random = new SecureRandom();
+        random.setSeed(seed);
+        int CODE_LENGTH = 8; // Make this static
+
+        long randomLong = random.nextLong();
+        String fileHandle =  Long.toString(randomLong).substring(1, CODE_LENGTH+1);
+        return fileHandle;
+    }
+
+    private synchronized ArrayList<BlockInfo.Block> getBlocks(String filename, int numOfBlocks){
+
+        ArrayList<BlockInfo.Block> blocks = new ArrayList<BlockInfo.Block>();
+        int blockNo;
+        if(!filename.startsWith("/"))
+            filename = "/" + filename;
+        String file = filename.substring(filename.lastIndexOf("/") + 1);
+        String path = filename.substring(1, filename.lastIndexOf("/") + 1);
+
+        String newINodeNo = (new FileSystem()).generateINodeNo();
+        boolean inserted = root.insertIntoTree(root, newINodeNo, file, path.split("/"), "f");
+        /*
+         *  If inserted false it means either the folder
+         *  structure does not exist or the file already exists.
+         *  In both cases we the NameNode doesnot return any
+         *  blocks to the client.
+         */
+        if(inserted){
+            INode node = root.getNode(root, filename.split("/"));
+            blockNo = getBlockNum() + 1;
+            int n = numOfBlocks + blockNo - 1;
+            System.out.println("[DEBUG] Value of n : " + n);
+            writeBlockNum(n);
+            //node.setDirty(true);
+            for(int i = blockNo; i <= n; i++){
+                //blockNo = getBlockNum() + 1;
+                node.addBlockNo(i);
+                //filenameToBlocks.get(filename).add(blockNo);
+                List<DataNodeInfo.DataNode> dataNodes = findBestDataNodes(REPLICATION_FACTOR);
+                blockToDN.put(i, new Pair<>(dataNodes, false));
+                blocks.add(BlockInfo.Block.newBuilder().addAllDataNode(dataNodes).setNum(i).build());
+            }
+            System.out.println("Getblocks " + blockToDN);
+        }
+        return blocks;
+    }
+
+    private synchronized ArrayList<BlockInfo.Block> getBlocks(String filename) {
+        ArrayList<BlockInfo.Block> blocks = new ArrayList<BlockInfo.Block>();
+        INode temp = root.getNode(root, filename.split("/"));
+        if(temp.getMetadata()[0].equals("f")) {
+            List<String> blks = Arrays.asList(temp.getBlockNos().split(","));
+
+            for(int i = 0; i < blks.size(); i++){
+                List<DataNodeInfo.DataNode> dataNodes = new ArrayList<>();
+                dataNodes = blockToDN.get(blks.get(i)).getKey();
+                blocks.add(BlockInfo.Block.newBuilder()
+                        .setNum(Integer.parseInt(blks.get(i)))
+                        .addAllDataNode(dataNodes).build());
+            }
+
+            /*
+            for(int i = 0; i < blks.size(); i++){
+                List<DataNodeInfo.DataNode> dataNodes = new ArrayList<>();
+                for(Map.Entry<String, List<Integer>> entry : blockReportStatus.entrySet()) {
+                    for (int j = 0; j < entry.getValue().size(); j++) {
+                        if(Integer.parseInt(blks.get(i)) == entry.getValue().get(j)) {
+                            String ip = entry.getKey();
+                            dataNodes.add(DataNodeInfo.DataNode.newBuilder()
+                                    .setId(1)
+                                    .setIp(entry.getKey())
+                                    .setPort(DATA_NODE_PORT)
+                                    .build());
+                        }
+                    }
+                }
+                blocks.add(BlockInfo.Block.newBuilder()
+                        .setNum(Integer.parseInt(blks.get(i)))
+                        .addAllDataNode(dataNodes).build());
+            }*/
+        }
+        return blocks;
+    }
+}

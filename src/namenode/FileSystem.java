@@ -1,0 +1,130 @@
+package namenode;
+
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.security.SecureRandom;
+import java.util.*;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Created by SAYAN on 16-10-2017.
+ */
+public class FileSystem {
+
+    static String SUPERBLOCK = "C:\\Users\\";
+
+    private static INode root;
+
+    public FileSystem(){
+
+    }
+
+    public static void main(String[] args) {
+        //System.out.println(generateINodeNo());
+        FileSystem fs = new FileSystem();
+        //fs.createFSInMemory();
+    }
+
+    public String generateINodeNo(){
+        String chars = "1234567890";
+        long seed = Long.parseLong(chars) * Long.parseLong("1000")
+                + System.currentTimeMillis() % 1000L;
+        Random random = new SecureRandom();
+        random.setSeed(seed);
+        int CODE_LENGTH = 10; // Make this static
+
+        long randomLong = random.nextLong();
+        String fileHandle =  Long.toString(randomLong).substring(1, CODE_LENGTH+1);
+        return "i" + fileHandle;
+    }
+
+    public void createNewINode(INode node){
+        BufferedWriter bw = null;
+        FileWriter fw = null;
+        String[] metadata = node.getMetadata();
+        String iNum = node.getINodeNo();
+        String m = metadata[0]+"|"+metadata[1]+"|"+metadata[2];
+        String d = "";
+        if(metadata[0].equals("f"))
+            d = node.getBlockNos();
+        try {
+            fw = new FileWriter(SUPERBLOCK + "\\" + node.iNum + ".txt");
+            bw = new BufferedWriter(fw);
+            if(metadata[0].equals("f"))
+                bw.write(m + System.getProperty("line.separator") + d);
+            else
+                bw.write(m);
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                if (bw != null)
+                    bw.close();
+                if (fw != null)
+                    fw.close();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        }
+    }
+
+
+
+    public void addINodeToFS(INode root, String[] filename){
+        INode temp = root, prev = null;
+        String file = filename[filename.length - 1];
+        for (int i = 0; i < filename.length; i++) {
+            if(filename[i].equals(""))
+                continue;
+            if (temp.getList().containsKey(filename[i])) {
+                prev = temp;
+                temp = temp.getList().get(filename[i]);
+            }
+        }
+
+        if(temp.isDirty()) {
+            try {
+                temp.setDirty(false);
+                FileWriter fw = new FileWriter(SUPERBLOCK +
+                        "\\" + prev.iNum + ".txt", true);
+                fw.write(System.getProperty("line.separator")
+                        + file + " " + temp.iNum);
+                fw.close();
+
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+            createNewINode(temp);
+        }
+    }
+
+    public Map<String, List<String>> listFiles(INode root, String[] directory){
+
+        Map<String, List<String>> ret= new HashMap<>();
+        INode temp = root;
+        if(directory.length == 1
+                && (directory[0].equals(".") || directory[0].equals("/")))
+            directory[0] = "";
+        for(int i = 0; i < directory.length; i++) {
+            if(directory[i].equals(""))
+                continue;
+            if(temp.getList().containsKey(directory[i]))
+                temp = temp.getList().get(directory[i]);
+            else
+                return ret;
+        }
+        if(temp.getMetadata()[0].equals("f"))
+            return ret;
+        for (Map.Entry<String, INode> entry: temp.getList().entrySet()){
+            String name = entry.getKey();
+            String type = entry.getValue().getMetadata()[0];
+            String created = entry.getValue().getMetadata()[1];
+            String owner = entry.getValue().getMetadata()[2];
+            ret.put(name, Arrays.asList(type, created, owner));
+        }
+        return ret;
+    }
+}

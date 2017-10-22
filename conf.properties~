@@ -1,0 +1,39 @@
+# Key used for RPC communication with DataNode (Must be same with Client Conf)
+datanode_key=datanode
+
+# Key used for RPC communication with NameNode (Must be same with Client Conf)
+namenode_key=namenode
+
+# Number of chunk copies to be created
+number_of_copies=1
+
+# Path to security.policy file
+default_scurity_location=./
+
+# Not used
+default_image_locatoin=./
+default_backup_location=./
+
+# Default location to store file chunks
+default_storage_location=/xxx/yyy/
+
+# Chunk backup
+default_backup_file=./dn_backup
+
+# Block Report time interval
+blockreport_interval=60000
+
+# Heart Beat time interval
+heartbeat_interval=5000
+
+# NameNode IP
+namenode_loc=10.1.134.48
+
+# Id of DataNode
+datanode_id=2
+
+# Internet Interface through which Remote Communication will be performed
+inet_interface=eth0
+
+# Default Loacation where the journal file will be stored
+default_jounal_location=./

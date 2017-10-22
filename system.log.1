@@ -1,0 +1,116 @@
+Oct 22, 2017 9:11:18 PM client.Writer openFile
+INFO: [Opening File]
+Oct 22, 2017 9:11:19 PM client.Writer put
+INFO: [For Block] 40
+Oct 22, 2017 9:11:19 PM client.Writer write
+INFO: num: 40
+dataNode {
+  id: 1
+  port: 5000
+  ip: "10.1.134.77"
+}
+dataNode {
+  id: 1
+  port: 5000
+  ip: "10.1.134.78"
+}
+dataNode {
+  id: 1
+  port: 5000
+  ip: "10.1.134.49"
+}
+
+Oct 22, 2017 9:11:19 PM client.Writer write
+INFO: [For DataNode] 10.1.134.77
+Oct 22, 2017 9:11:19 PM client.Writer write
+INFO: [Connecting to DataNode] 10.1.134.77
+Oct 22, 2017 9:11:19 PM client.Writer write
+SEVERE: [Could Not connect to Remote Machine] Connection refused to host: 10.1.134.77; nested exception is: 
+	java.net.ConnectException: Connection refused (Connection refused)
+ Retrying...
+
+Oct 22, 2017 9:11:19 PM client.Writer write
+INFO: [For DataNode] 10.1.134.78
+Oct 22, 2017 9:11:19 PM client.Writer write
+INFO: [Connecting to DataNode] 10.1.134.78
+Oct 22, 2017 9:12:19 PM client.Writer write
+SEVERE: [Could Not connect to Remote Machine] error during JRMP connection establishment; nested exception is: 
+	java.net.SocketTimeoutException: Read timed out
+ Retrying...
+
+Oct 22, 2017 9:12:19 PM client.Writer write
+INFO: [For DataNode] 10.1.134.49
+Oct 22, 2017 9:12:19 PM client.Writer write
+INFO: [Connecting to DataNode] 10.1.134.49
+Oct 22, 2017 9:13:19 PM client.Writer write
+INFO: [Returning Response]
+copiesWritten: 1
+
+
+Oct 22, 2017 9:13:19 PM client.Writer put
+INFO: [For Block] 41
+Oct 22, 2017 9:13:19 PM client.Writer write
+INFO: num: 41
+dataNode {
+  id: 1
+  port: 5000
+  ip: "10.1.134.77"
+}
+dataNode {
+  id: 1
+  port: 5000
+  ip: "10.1.134.78"
+}
+dataNode {
+  id: 1
+  port: 5000
+  ip: "10.1.134.49"
+}
+
+Oct 22, 2017 9:13:19 PM client.Writer write
+INFO: [For DataNode] 10.1.134.77
+Oct 22, 2017 9:13:19 PM client.Writer write
+INFO: [Connecting to DataNode] 10.1.134.77
+Oct 22, 2017 9:13:19 PM client.Writer write
+SEVERE: [Could Not connect to Remote Machine] Connection refused to host: 10.1.134.77; nested exception is: 
+	java.net.ConnectException: Connection refused (Connection refused)
+ Retrying...
+
+Oct 22, 2017 9:13:19 PM client.Writer write
+INFO: [For DataNode] 10.1.134.78
+Oct 22, 2017 9:13:19 PM client.Writer write
+INFO: [Connecting to DataNode] 10.1.134.78
+Oct 22, 2017 9:14:19 PM client.Writer write
+SEVERE: [Could Not connect to Remote Machine] error during JRMP connection establishment; nested exception is: 
+	java.net.SocketTimeoutException: Read timed out
+ Retrying...
+
+Oct 22, 2017 9:14:19 PM client.Writer write
+INFO: [For DataNode] 10.1.134.49
+Oct 22, 2017 9:14:19 PM client.Writer write
+INFO: [Connecting to DataNode] 10.1.134.49
+Oct 22, 2017 9:15:12 PM client.Writer write
+SEVERE: null
+java.rmi.UnmarshalException: Error unmarshaling return header; nested exception is: 
+	java.io.EOFException
+	at sun.rmi.transport.StreamRemoteCall.executeCall(StreamRemoteCall.java:229)
+	at sun.rmi.server.UnicastRef.invoke(UnicastRef.java:162)
+	at java.rmi.server.RemoteObjectInvocationHandler.invokeRemoteMethod(RemoteObjectInvocationHandler.java:227)
+	at java.rmi.server.RemoteObjectInvocationHandler.invoke(RemoteObjectInvocationHandler.java:179)
+	at com.sun.proxy.$Proxy1.writeBlock(Unknown Source)
+	at client.Writer.write(Writer.java:223)
+	at client.Writer.put(Writer.java:122)
+	at client.ClientDriver.put(ClientDriver.java:168)
+	at client.ClientDriver.main(ClientDriver.java:62)
+Caused by: java.io.EOFException
+	at java.io.DataInputStream.readByte(DataInputStream.java:267)
+	at sun.rmi.transport.StreamRemoteCall.executeCall(StreamRemoteCall.java:215)
+	... 8 more
+
+Oct 22, 2017 9:15:12 PM client.Writer write
+INFO: [Returning Response]
+copiesWritten: 0
+
+
+Oct 22, 2017 9:15:12 PM client.Writer closeFile
+INFO: [Closing File]
